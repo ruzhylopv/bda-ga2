@@ -1,0 +1,20 @@
+# Databricks Asset Bundle: deploys the repo (notebooks, src/, config/, data/) and the jobs in resources/.
+#   databricks bundle deploy            # upload files + create/update jobs
+#   databricks bundle run ga2_etl --params city=A_Geneva
+bundle:
+  name: bda_ga2
+
+include:
+  - resources/*.yml
+
+sync:
+  exclude:
+    - "*.pdf"
+    - ".venv"
+    - "docs/*.png"
+
+targets:
+  dev:
+    # Development mode prefixes job names with [dev <user>] and keeps each user's deployment separate.
+    mode: development
+    default: true
