@@ -1,0 +1,30 @@
+{
+  "region": "Switzerland",
+  "currency": "CHF",
+  "cities": {
+    "A_Geneva": {
+      "name": "Geneva",
+      "letter": "A",
+      "role": "train",
+      "snapshot_date": "2026-09-23",
+      "source_url": "https://data.insideairbnb.com/switzerland/geneva/geneva/2026-09-23/data/listings.csv.gz",
+      "raw_path": "data/A_Geneva/listings.csv"
+    },
+    "B_Zurich": {
+      "name": "Zurich",
+      "letter": "B",
+      "role": "train",
+      "snapshot_date": "2026-09-25",
+      "source_url": "https://data.insideairbnb.com/switzerland/z%C3%BCrich/zurich/2026-09-25/data/listings.csv.gz",
+      "raw_path": "data/B_Zurich/listings.csv"
+    },
+    "C_Vaud": {
+      "name": "Vaud",
+      "letter": "C",
+      "role": "new_client",
+      "snapshot_date": "2026-10-05",
+      "source_url": "https://data.insideairbnb.com/switzerland/vd/vaud/2026-10-05/data/listings.csv.gz",
+      "raw_path": "data/C_Vaud/listings.csv"
+    }
+  }
+}
