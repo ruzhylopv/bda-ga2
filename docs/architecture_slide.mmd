@@ -1,0 +1,32 @@
+flowchart LR
+    CSV["Inside Airbnb<br/>listings.csv"]
+
+    subgraph BRONZE["Bronze · raw"]
+        BR["listings_raw_&lt;city&gt;"]
+    end
+
+    subgraph SILVER["Silver · cleaned"]
+        SL["listings_&lt;city&gt;"]
+    end
+
+    subgraph GOLD["Gold · business-ready"]
+        MET["metrics_&lt;city&gt;"]
+        FEAT["features_&lt;city&gt;"]
+        PRED["predictions_&lt;city&gt;"]
+    end
+
+    USE["Dashboard<br/>+ Genie"]
+
+    CSV --> BR --> SL
+    SL --> MET
+    SL --> FEAT
+    FEAT -- "price model<br/>trained on A + B" --> PRED
+    MET --> USE
+    PRED --> USE
+
+    classDef bronze fill:#f3e6d8,stroke:#a8743f,color:#1a1a1a
+    classDef silver fill:#eceef0,stroke:#8d949a,color:#1a1a1a
+    classDef gold fill:#f8efcc,stroke:#c9a227,color:#1a1a1a
+    class BRONZE bronze
+    class SILVER silver
+    class GOLD gold

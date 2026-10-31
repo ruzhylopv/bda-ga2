@@ -4,6 +4,10 @@ A medallion lakehouse on Databricks Free Edition (serverless, Unity Catalog cata
 One Databricks Job, parameterised by `city`, builds every layer for one city; adding a city means adding an entry to
 [`config/cities.json`](../config/cities.json) and running the job again — no code is copied.
 
+![Architecture](architecture.png)
+
+<sub>Slide version: [`architecture.png`](architecture.png), from [`architecture_slide.mmd`](architecture_slide.mmd) (render at mermaid.live to edit). Detailed flow below.</sub>
+
 ```mermaid
 flowchart LR
     subgraph SRC[Source]
