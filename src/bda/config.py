@@ -34,3 +34,9 @@ def cities_by_role(role: str) -> list[str]:
 def volume_csv_path(city_key: str) -> str:
     """Where 00_setup copies the raw CSV; Spark reads from here."""
     return f"{RAW_VOLUME_PATH}/{city_key}/listings.csv"
+
+
+def table_name(schema: str, base: str, city_key: str) -> str:
+    """Per-city table, e.g. table_name(BRONZE, "listings_raw", "A_Geneva") -> workspace.ga2_bronze.listings_raw_geneva."""
+    suffix = get_city(city_key)["name"].lower().replace(" ", "_")
+    return f"{CATALOG}.{schema}.{base}_{suffix}"
