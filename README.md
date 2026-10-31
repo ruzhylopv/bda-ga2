@@ -55,12 +55,12 @@ bda-ga2/
 ├── notebooks/
 │   ├── 00_setup.py          # creates ga2_bronze / ga2_silver / ga2_gold schemas, lands raw CSVs in a volume
 │   ├── eda/                 # 3.1 exploratory analysis of cities A and B
-│   ├── pipeline/            # 3.3 ETL: bronze ingest -> silver listings -> gold metrics, city as a parameter
-│   ├── model/               # 3.4 features, baseline vs model, predictions to gold
+│   ├── pipeline/            # 3.3 job ga2_etl (city as a parameter): 01 bronze -> 02 silver -> 03 gold metrics -> 04 features
+│   ├── model/               # 3.4 job ga2_model: 05 train + evaluate vs baseline (A + B), 06 predictions per city
 │   └── city_c/              # 3.7 first run on city C, fixes log, error report
 ├── src/bda/                 # shared Python code imported by the notebooks
 │   └── config.py            # loads cities.json; catalog, schema and volume names
-├── resources/               # Databricks Job definition for the ETL pipeline
+├── resources/               # Databricks Job definitions: ga2_etl and ga2_model
 ├── dashboard/               # 3.5 exported AI/BI dashboard
 ├── genie/                   # 3.6 Genie Agent instructions and example questions
 ├── docs/                    # 3.2 solution architecture diagram and description
