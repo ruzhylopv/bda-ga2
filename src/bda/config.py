@@ -8,7 +8,8 @@ CONFIG_PATH = REPO_ROOT / "config" / "cities.json"
 
 # Databricks Free Edition ships a default catalog called `workspace`.
 CATALOG = "workspace"
-BRONZE, SILVER, GOLD = "bronze", "silver", "gold"
+# Schemas are prefixed so they do not clash with other projects in the same workspace.
+BRONZE, SILVER, GOLD = "ga2_bronze", "ga2_silver", "ga2_gold"
 RAW_VOLUME = "raw"
 RAW_VOLUME_PATH = f"/Volumes/{CATALOG}/{BRONZE}/{RAW_VOLUME}"
 
