@@ -87,7 +87,7 @@ It is run once per city — for A and B in week 1, for C in week 2 — with the 
 | Task | Notebook | Runs | Reads → writes |
 |---|---|---|---|
 | train | `model/05_train_evaluate` | once | `features_<city>` of the `train` cities (A, B) → `price_model` (alias `champion`), `model_evaluation` |
-| predict | `model/06_predict` | for each city in `cities` | `features_<city>` + `champion` model → `predictions_<city>`; refresh `predictions_all` |
+| predict | `model/06_predict` | for each city in `city_keys` | `features_<city>` + `champion` model → `predictions_<city>`; refresh `predictions_all` |
 
 The model is chosen by 5-fold cross-validation on the train rows: a linear regression or a shallow gradient boosting
 with monotonic constraints (more guests, bedrooms, bathrooms or amenities never lower the price; distance from the
