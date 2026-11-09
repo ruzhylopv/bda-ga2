@@ -1,0 +1,42 @@
+# Deliverable 3.4: train the price model on the training cities, then price every listing of each city.
+resources:
+  jobs:
+    ga2_model:
+      name: ga2_model
+      description: "Train and evaluate the price model on A + B (05), then write predictions per city (06)."
+      max_concurrent_runs: 1
+      parameters:
+        - name: cities
+          default: '["A_Geneva", "B_Zurich"]'
+
+      tasks:
+        - task_key: train
+          notebook_task:
+            notebook_path: ../notebooks/model/05_train_evaluate.py
+
+        - task_key: predict
+          depends_on: [{task_key: train}]
+          for_each_task:
+            inputs: "{{job.parameters.cities}}"
+            # Sequential: every city run refreshes the shared predictions_all view.
+            concurrency: 1
+            task:
+              task_key: predict_city
+              notebook_task:
+                notebook_path: ../notebooks/model/06_predict.py
+                base_parameters:
+                  city: "{{input}}"
+
+    # Prices one city with the current champion model, without retraining: the city C first run.
+    ga2_predict:
+      name: ga2_predict
+      description: "Price every listing of one city with the champion model (06). No training."
+      max_concurrent_runs: 1
+      parameters:
+        - name: city
+          default: A_Geneva
+
+      tasks:
+        - task_key: predict
+          notebook_task:
+            notebook_path: ../notebooks/model/06_predict.py
