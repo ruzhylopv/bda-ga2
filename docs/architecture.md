@@ -87,17 +87,26 @@ It is run once per city — for A and B in week 1, for C in week 2 — with the 
 | Task | Notebook | Runs | Reads → writes |
 |---|---|---|---|
 | train | `model/05_train_evaluate` | once | `features_<city>` of the `train` cities (A, B) → `price_model` (alias `champion`), `model_evaluation` |
-| predict | `model/06_predict` | for each city | `features_<city>` + `champion` model → `predictions_<city>`; refresh `predictions_all` |
+| predict | `model/06_predict` | for each city in `city_keys` | `features_<city>` + `champion` model → `predictions_<city>`; refresh `predictions_all` |
+
+The model is chosen by 5-fold cross-validation on the train rows: a linear regression or a gradient boosting of small trees
+with monotonic constraints (more guests, bedrooms, bathrooms or amenities never lower the price; distance from the
+centre, a shared bathroom or a longer minimum stay never raise it). The test rows are only used for the final MAE.
+
+`ga2_predict` (parameter `city`) runs `06_predict` alone. It prices a new city with the current `champion`.
+
+`model/07_transfer_rehearsal` is run once by hand after `ga2_model`: it trains on Geneva and prices Zurich (and the
+reverse) to estimate the city C error before city C is loaded, and stores that estimate in `city_c_expectation`.
 
 **Training and ETL are separate.** The ETL job never touches the model, and the model job only reads gold features.
-For city C, `ga2_etl` runs with `city=C_Vaud` and then only `06_predict` runs for Vaud: the model is not retrained, which
+For city C, `ga2_etl` runs with `city=C_Vaud` and then only `ga2_predict` runs for Vaud: the model is not retrained, which
 is exactly the "unchanged first run" required for the city C report. Failures in `ga2_etl` are pipeline fixes; failures
 or poor accuracy in `ga2_model` are model changes — the two categories of the report.
 
 ## Adding a city
 
 1. Add the snapshot to `data/<key>/listings.csv` and an entry to `config/cities.json`.
-2. Run `ga2_etl` with `city=<key>`, then `06_predict` with `city=<key>`.
+2. Run `ga2_etl` with `city=<key>`, then `ga2_predict` with `city=<key>`.
 3. The new city's tables appear and the `*_all` views include it. Nothing else changes.
 
 Anything that breaks in step 2 is, by definition, a pipeline fix or a model change for the city C report.

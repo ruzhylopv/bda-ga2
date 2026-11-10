@@ -1,0 +1,15 @@
+# Prices one city with the current champion model, without retraining: the city C first run.
+resources:
+  jobs:
+    ga2_predict:
+      name: ga2_predict
+      description: "Price every listing of one city with the champion model (06). No training."
+      max_concurrent_runs: 1
+      parameters:
+        - name: city
+          default: A_Geneva
+
+      tasks:
+        - task_key: predict
+          notebook_task:
+            notebook_path: ../notebooks/model/06_predict.py

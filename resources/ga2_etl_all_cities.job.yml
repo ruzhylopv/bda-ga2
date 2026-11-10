@@ -4,14 +4,15 @@ resources:
     ga2_etl_all_cities:
       name: ga2_etl_all_cities
       description: "Runs ga2_etl for each city in the list, one after another."
+      # Not called `cities`: job parameters are passed down to the ga2_etl runs, and 00_setup has a `cities` field.
       parameters:
-        - name: cities
+        - name: city_keys
           default: '["A_Geneva", "B_Zurich"]'
 
       tasks:
         - task_key: each_city
           for_each_task:
-            inputs: "{{job.parameters.cities}}"
+            inputs: "{{job.parameters.city_keys}}"
             # Sequential: every city run refreshes the shared *_all views and max_concurrent_runs of ga2_etl is 1.
             concurrency: 1
             task:

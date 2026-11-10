@@ -137,7 +137,7 @@ print(f"{CITY_KEY}: {total_listings} listings, {all_row['active_listings']} acti
 
 for df, target, comment in [
     (city_metrics, CITY_METRICS,
-     f"Metrics for {city['name']} per room_type. room_type = 'All' is the city total: filter on it, "
+     f"Metrics for {city['name']} per room_type. room_type = All is the city total: filter on it, "
      f"never sum across room types. Prices in CHF exclude listings without price and implausible prices."),
     (neighbourhood_metrics, NEIGHBOURHOOD_METRICS,
      f"Metrics for {city['name']} per neighbourhood. Prices in CHF exclude listings without price and implausible prices."),

@@ -7,6 +7,8 @@
 # MAGIC
 # MAGIC - **Only leak-free columns** (see the leakage review in the EDA): what a host decides when setting up the listing,
 # MAGIC   plus long-run review history. No price quotes, revenue, occupancy or availability.
+# MAGIC - **Location without neighbourhood names**: `log_distance_to_centre`, where the centre is the densest
+# MAGIC   ~1 km cell of listings. Neighbourhood names do not exist in a new city; a distance does.
 # MAGIC - **Every listing is kept**, so `06_predict` can price all of them. `label_ok` marks the rows the model may learn
 # MAGIC   from and be evaluated on: a price exists and it is not `implausible`.
 # MAGIC - **Split before any modelling**: 20% of listings per city go to `test`, chosen by a hash of the listing id —
@@ -43,14 +45,31 @@ from pyspark.sql import functions as F  # noqa: E402
 LONG_STAY_NIGHTS = 28   # monthly rentals: ~30–40% lower nightly price in the EDA
 TEST_SHARE_BUCKETS = 5  # 1 bucket of 5 -> 20% test
 
-FEATURES = ["room_type", "city", "accommodates", "bedrooms", "bathrooms", "bathroom_shared", "long_stay",
-            "has_reviews", "log_reviews", "review_scores_rating", "host_is_superhost"]
+FEATURES = ["room_type", "city", "accommodates", "bedrooms", "bathrooms", "bathroom_shared", "log_amenities",
+            "log_distance_to_centre", "log_minimum_nights", "log_host_listings", "long_stay", "has_reviews",
+            "log_reviews", "review_scores_rating", "host_is_superhost"]
 LEAKY = ["price_quote_price_per_night", "price_quote_total_price", "estimated_revenue_l365d",
          "estimated_occupancy_l365d", "availability_30", "availability_60", "availability_90", "availability_365",
          "number_of_reviews_ltm", "reviews_per_month", "review_scores_value"]
 assert not set(FEATURES) & set(LEAKY), "a leaky column is listed as a feature"
 
 silver = spark.table(SOURCE)
+
+# The centre is the densest ~1 km grid cell of listings, found from coordinates alone (no prices), so it works
+# for any new city without a hand-picked landmark.
+CENTRE_GRID_DEGREES = 2
+centre = (silver
+    .groupBy(F.round("latitude", CENTRE_GRID_DEGREES).alias("lat"),
+             F.round("longitude", CENTRE_GRID_DEGREES).alias("lon"))
+    .count()
+    .orderBy(F.desc("count"), "lat", "lon")
+    .first())
+print(f"{CITY_KEY}: centre at {centre['lat']}, {centre['lon']} ({centre['count']} listings in the cell)")
+
+KM_PER_DEGREE = 111.2
+distance_km = F.sqrt(
+    F.pow((F.col("latitude") - centre["lat"]) * KM_PER_DEGREE, 2)
+    + F.pow((F.col("longitude") - centre["lon"]) * KM_PER_DEGREE * F.cos(F.radians(F.lit(centre["lat"]))), 2))
 
 features = silver.select(
     "city_key", "city", "snapshot_date", "id",
@@ -60,7 +79,12 @@ features = silver.select(
     F.least("bedrooms", "accommodates").alias("bedrooms"),
     "bathrooms",
     "bathroom_shared",
+    F.log1p("amenities_count").alias("log_amenities"),
+    F.log1p(distance_km).alias("log_distance_to_centre"),
+    F.log1p("minimum_nights").alias("log_minimum_nights"),
     (F.col("minimum_nights") >= LONG_STAY_NIGHTS).alias("long_stay"),
+    # Professional hosts (serviced apartments, agencies) price differently from someone renting out their flat.
+    F.log1p("calculated_host_listings_count").alias("log_host_listings"),
     (F.col("number_of_reviews") > 0).alias("has_reviews"),
     F.log1p("number_of_reviews").alias("log_reviews"),
     "review_scores_rating",  # null when there are no reviews; imputed in training, has_reviews carries the signal
