@@ -120,6 +120,16 @@ def price_level_offset(model: RegressorMixin, df: pd.DataFrame, features: list[s
     return float(np.median(df["log_price"] - model.predict(df[features])))
 
 
+def area_offsets(residuals: pd.Series, areas: pd.Series, prior_listings: int = 20) -> pd.Series:
+    """Price level per area (e.g. municipality) on top of the city level, from known log residuals.
+
+    The mean residual is shrunk towards 0 as if each area had prior_listings extra listings at the city level, so
+    an area with 3 known prices barely moves and one with 300 gets its own level.
+    """
+    grouped = residuals.groupby(areas)
+    return grouped.sum() / (grouped.count() + prior_listings)
+
+
 def mae_table(df: pd.DataFrame, combined_label: str | None = "A + B") -> pd.DataFrame:
     """MAE in CHF of baseline_price and model_price against price, per city and (optionally) combined."""
     parts = list(df.groupby("city"))
