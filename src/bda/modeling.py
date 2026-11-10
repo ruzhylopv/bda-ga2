@@ -18,7 +18,7 @@ from sklearn.preprocessing import OneHotEncoder, OrdinalEncoder
 
 CATEGORICAL = ["room_type", "city"]
 NUMERIC = ["accommodates", "bedrooms", "bathrooms", "log_amenities", "log_distance_to_centre",
-           "log_reviews", "review_scores_rating"]
+           "log_minimum_nights", "log_host_listings", "log_reviews", "review_scores_rating"]
 BOOLEAN = ["bathroom_shared", "long_stay", "has_reviews", "host_is_superhost"]
 FEATURES = CATEGORICAL + NUMERIC + BOOLEAN
 
@@ -26,7 +26,7 @@ FEATURES = CATEGORICAL + NUMERIC + BOOLEAN
 # so a noisy group of listings cannot teach the model that an extra bedroom makes a flat cheaper.
 MONOTONIC = {
     "accommodates": 1, "bedrooms": 1, "bathrooms": 1, "log_amenities": 1,
-    "log_distance_to_centre": -1, "bathroom_shared": -1, "long_stay": -1,
+    "log_distance_to_centre": -1, "log_minimum_nights": -1, "bathroom_shared": -1, "long_stay": -1,
 }
 
 SEED = 42
@@ -52,7 +52,7 @@ def build_linear(categorical: list[str] = CATEGORICAL) -> Pipeline:
 
 
 def build_boosting(categorical: list[str] = CATEGORICAL) -> Pipeline:
-    """Shallow gradient boosting on log price with monotonic constraints.
+    """Gradient boosting of small trees on log price with monotonic constraints.
 
     Absolute-error loss predicts the median log price, and exp(median of log) is the median price: the
     prediction that minimises MAE, the metric we are judged on. Missing values are handled by the trees.
@@ -63,7 +63,7 @@ def build_boosting(categorical: list[str] = CATEGORICAL) -> Pipeline:
         remainder="passthrough", verbose_feature_names_out=False,
     ).set_output(transform="pandas")
     boosting = HistGradientBoostingRegressor(
-        loss="absolute_error", learning_rate=0.05, max_iter=300, max_depth=3, min_samples_leaf=20,
+        loss="absolute_error", learning_rate=0.05, max_iter=300, max_depth=5, min_samples_leaf=30,
         categorical_features=categorical, monotonic_cst=MONOTONIC, random_state=SEED,
     )
     return Pipeline([("encode", encode), ("regression", boosting)])

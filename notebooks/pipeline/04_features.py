@@ -46,8 +46,8 @@ LONG_STAY_NIGHTS = 28   # monthly rentals: ~30–40% lower nightly price in the 
 TEST_SHARE_BUCKETS = 5  # 1 bucket of 5 -> 20% test
 
 FEATURES = ["room_type", "city", "accommodates", "bedrooms", "bathrooms", "bathroom_shared", "log_amenities",
-            "log_distance_to_centre", "long_stay", "has_reviews", "log_reviews", "review_scores_rating",
-            "host_is_superhost"]
+            "log_distance_to_centre", "log_minimum_nights", "log_host_listings", "long_stay", "has_reviews",
+            "log_reviews", "review_scores_rating", "host_is_superhost"]
 LEAKY = ["price_quote_price_per_night", "price_quote_total_price", "estimated_revenue_l365d",
          "estimated_occupancy_l365d", "availability_30", "availability_60", "availability_90", "availability_365",
          "number_of_reviews_ltm", "reviews_per_month", "review_scores_value"]
@@ -81,7 +81,10 @@ features = silver.select(
     "bathroom_shared",
     F.log1p("amenities_count").alias("log_amenities"),
     F.log1p(distance_km).alias("log_distance_to_centre"),
+    F.log1p("minimum_nights").alias("log_minimum_nights"),
     (F.col("minimum_nights") >= LONG_STAY_NIGHTS).alias("long_stay"),
+    # Professional hosts (serviced apartments, agencies) price differently from someone renting out their flat.
+    F.log1p("calculated_host_listings_count").alias("log_host_listings"),
     (F.col("number_of_reviews") > 0).alias("has_reviews"),
     F.log1p("number_of_reviews").alias("log_reviews"),
     "review_scores_rating",  # null when there are no reviews; imputed in training, has_reviews carries the signal

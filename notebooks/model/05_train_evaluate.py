@@ -12,9 +12,9 @@
 # MAGIC   median for the `room_type`; else the overall median.
 # MAGIC - **Candidates** (`src/bda/modeling.py`):
 # MAGIC   - `linear`: linear regression, the first week 1 model. A coefficient *b* means ×e^b on the price.
-# MAGIC   - `boosting`: shallow gradient boosting (depth 3) with absolute-error loss and **monotonic constraints**:
+# MAGIC   - `boosting`: gradient boosting of small trees (depth 5), absolute-error loss, **monotonic constraints**:
 # MAGIC     more guests, bedrooms, bathrooms or amenities can only raise the price; distance from the centre, a
-# MAGIC     shared bathroom or a long-stay minimum can only lower it.
+# MAGIC     shared bathroom or a longer minimum stay can only lower it.
 # MAGIC - **Metric**: MAE in CHF on the test set: city A, city B and both together.
 # MAGIC
 # MAGIC Outputs: the model in MLflow / Unity Catalog (`ga2_gold.price_model`, alias `champion`) and

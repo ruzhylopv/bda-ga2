@@ -89,9 +89,9 @@ It is run once per city — for A and B in week 1, for C in week 2 — with the 
 | train | `model/05_train_evaluate` | once | `features_<city>` of the `train` cities (A, B) → `price_model` (alias `champion`), `model_evaluation` |
 | predict | `model/06_predict` | for each city in `city_keys` | `features_<city>` + `champion` model → `predictions_<city>`; refresh `predictions_all` |
 
-The model is chosen by 5-fold cross-validation on the train rows: a linear regression or a shallow gradient boosting
+The model is chosen by 5-fold cross-validation on the train rows: a linear regression or a gradient boosting of small trees
 with monotonic constraints (more guests, bedrooms, bathrooms or amenities never lower the price; distance from the
-centre, a shared bathroom or a long-stay minimum never raise it). The test rows are only used for the final MAE.
+centre, a shared bathroom or a longer minimum stay never raise it). The test rows are only used for the final MAE.
 
 `ga2_predict` (parameter `city`) runs `06_predict` alone. It prices a new city with the current `champion`.
 
