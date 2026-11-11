@@ -7,6 +7,12 @@ bundle:
 include:
   - resources/*.yml
 
+variables:
+  warehouse_id:
+    description: SQL warehouse the dashboard runs on.
+    lookup:
+      warehouse: "Serverless Starter Warehouse"
+
 sync:
   exclude:
     - "*.pdf"

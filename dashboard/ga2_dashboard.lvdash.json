@@ -1,0 +1,2030 @@
+{
+  "datasets": [
+    {
+      "name": "city_totals",
+      "displayName": "city_totals",
+      "queryLines": [
+        "SELECT city, listings, active_listings, pct_active, hosts, round(listings / hosts, 2) AS listings_per_host,\n",
+        "       pct_multi_listing_hosts, median_price, p25_price, p75_price, median_availability_365, pct_closed_all_year,\n",
+        "       avg_review_rating, pct_with_reviews, pct_superhost\n",
+        "FROM workspace.ga2_gold.city_metrics_all\n",
+        "WHERE room_type = 'All'\n",
+        "ORDER BY CASE city WHEN 'Geneva' THEN 1 WHEN 'Zurich' THEN 2 ELSE 3 END\n"
+      ]
+    },
+    {
+      "name": "room_mix",
+      "displayName": "room_mix",
+      "queryLines": [
+        "SELECT city, room_type, listings, pct_of_listings, median_price\n",
+        "FROM workspace.ga2_gold.city_metrics_all\n",
+        "WHERE room_type <> 'All'\n"
+      ]
+    },
+    {
+      "name": "neighbourhoods",
+      "displayName": "neighbourhoods",
+      "queryLines": [
+        "SELECT city, neighbourhood, listings, priced_listings, median_price, pct_entire_home,\n",
+        "       row_number() OVER (PARTITION BY city ORDER BY listings DESC) AS size_rank\n",
+        "FROM workspace.ga2_gold.neighbourhood_metrics_all\n",
+        "QUALIFY size_rank <= 15\n"
+      ]
+    },
+    {
+      "name": "price_bands",
+      "displayName": "price_bands",
+      "queryLines": [
+        "WITH b AS (\n",
+        "  SELECT city, CASE WHEN price < 50 THEN '0-49' WHEN price < 100 THEN '50-99' WHEN price < 150 THEN '100-149'\n",
+        "                    WHEN price < 200 THEN '150-199' WHEN price < 300 THEN '200-299' WHEN price < 500 THEN '300-499'\n",
+        "                    ELSE '500+' END AS price_band,\n",
+        "         CASE WHEN price < 50 THEN 1 WHEN price < 100 THEN 2 WHEN price < 150 THEN 3 WHEN price < 200 THEN 4\n",
+        "              WHEN price < 300 THEN 5 WHEN price < 500 THEN 6 ELSE 7 END AS band_order\n",
+        "  FROM workspace.ga2_gold.listings_all WHERE has_price AND outlier_class <> 'implausible'\n",
+        ")\n",
+        "SELECT city, concat(band_order, ') ', price_band) AS price_band,\n",
+        "       round(100 * count(*) / sum(count(*)) OVER (PARTITION BY city), 1) AS pct_of_listings\n",
+        "FROM b GROUP BY city, band_order, price_band\n"
+      ]
+    },
+    {
+      "name": "ab_compare",
+      "displayName": "ab_compare",
+      "queryLines": [
+        "WITH m AS (\n",
+        "  SELECT * FROM workspace.ga2_gold.city_metrics_all WHERE room_type = 'All' AND city IN ('Geneva', 'Zurich')\n",
+        "), long AS (\n",
+        "  SELECT city, stack(10,\n",
+        "    1, 'Listings', CAST(listings AS DOUBLE),\n",
+        "    2, 'Active listings (%)', pct_active,\n",
+        "    3, 'Hosts', CAST(hosts AS DOUBLE),\n",
+        "    4, 'Listings per host', listings / hosts,\n",
+        "    5, 'Median price (CHF)', median_price,\n",
+        "    6, 'Median availability (days / year)', CAST(median_availability_365 AS DOUBLE),\n",
+        "    7, 'Closed all year (%)', pct_closed_all_year,\n",
+        "    8, 'Average review score', avg_review_rating,\n",
+        "    9, 'With reviews (%)', pct_with_reviews,\n",
+        "    10, 'Superhosts (%)', pct_superhost\n",
+        "  ) AS (ord, metric, value)\n",
+        "  FROM m\n",
+        ")\n",
+        "SELECT ord, metric,\n",
+        "       round(max(CASE WHEN city = 'Geneva' THEN value END), 2) AS geneva,\n",
+        "       round(max(CASE WHEN city = 'Zurich' THEN value END), 2) AS zurich,\n",
+        "       round(100 * (max(CASE WHEN city = 'Zurich' THEN value END) / max(CASE WHEN city = 'Geneva' THEN value END) - 1), 1)\n",
+        "         AS zurich_vs_geneva_pct\n",
+        "FROM long GROUP BY ord, metric ORDER BY ord\n"
+      ]
+    },
+    {
+      "name": "ab_room_price",
+      "displayName": "ab_room_price",
+      "queryLines": [
+        "SELECT city, room_type, median_price, listings\n",
+        "FROM workspace.ga2_gold.city_metrics_all\n",
+        "WHERE city IN ('Geneva', 'Zurich') AND room_type IN ('Entire home/apt', 'Private room')\n"
+      ]
+    },
+    {
+      "name": "ab_like_for_like",
+      "displayName": "ab_like_for_like",
+      "queryLines": [
+        "SELECT city, room_type, CAST(accommodates AS STRING) AS guests, count(*) AS listings,\n",
+        "       round(percentile(price, 0.5), 1) AS median_price\n",
+        "FROM workspace.ga2_gold.listings_all\n",
+        "WHERE has_price AND outlier_class <> 'implausible' AND city IN ('Geneva', 'Zurich') AND room_type = 'Entire home/apt' AND accommodates BETWEEN 1 AND 6\n",
+        "GROUP BY ALL\n"
+      ]
+    },
+    {
+      "name": "ab_size",
+      "displayName": "ab_size",
+      "queryLines": [
+        "SELECT city, CASE WHEN accommodates >= 6 THEN '6+' ELSE CAST(accommodates AS STRING) END AS guests,\n",
+        "       round(100 * count(*) / sum(count(*)) OVER (PARTITION BY city), 1) AS pct_of_listings\n",
+        "FROM workspace.ga2_gold.listings_all\n",
+        "WHERE has_price AND outlier_class <> 'implausible' AND city IN ('Geneva', 'Zurich')\n",
+        "GROUP BY ALL\n"
+      ]
+    },
+    {
+      "name": "mae_by_city",
+      "displayName": "mae_by_city",
+      "queryLines": [
+        "WITH ev AS (\n",
+        "  SELECT CASE city WHEN 'Geneva' THEN '1 Geneva (A)' WHEN 'Zurich' THEN '2 Zurich (B)' ELSE '3 A + B' END AS city_label,\n",
+        "         baseline_mae, model_mae\n",
+        "  FROM workspace.ga2_gold.model_evaluation\n",
+        "  UNION ALL\n",
+        "  SELECT CASE run WHEN 'first_run' THEN '4 Vaud (C), first run' ELSE '5 Vaud (C), after changes' END,\n",
+        "         baseline_mae_c, model_mae_c\n",
+        "  FROM workspace.ga2_gold.city_c_report WHERE rows = 'test'\n",
+        ")\n",
+        "SELECT city_label, 'Baseline' AS method, baseline_mae AS mae FROM ev\n",
+        "UNION ALL\n",
+        "SELECT city_label, 'Model', model_mae FROM ev\n"
+      ]
+    },
+    {
+      "name": "test_predictions",
+      "displayName": "test_predictions",
+      "queryLines": [
+        "SELECT city, room_type, neighbourhood, name, listing_url, price, predicted_price, baseline_price,\n",
+        "       error, abs_error, baseline_abs_error, pct_error\n",
+        "FROM workspace.ga2_gold.predictions_all\n",
+        "WHERE label_ok AND split = 'test'\n"
+      ]
+    },
+    {
+      "name": "mae_by_room_type",
+      "displayName": "mae_by_room_type",
+      "queryLines": [
+        "SELECT city, room_type, count(*) AS test_listings, round(avg(abs_error), 1) AS model_mae,\n",
+        "       round(avg(baseline_abs_error), 1) AS baseline_mae\n",
+        "FROM workspace.ga2_gold.predictions_all\n",
+        "WHERE label_ok AND split = 'test'\n",
+        "GROUP BY ALL\n",
+        "HAVING count(*) >= 20\n"
+      ]
+    },
+    {
+      "name": "mae_by_neighbourhood",
+      "displayName": "mae_by_neighbourhood",
+      "queryLines": [
+        "SELECT concat(neighbourhood, ' (', city, ')') AS area, city, count(*) AS test_listings,\n",
+        "       round(avg(abs_error), 1) AS model_mae, round(avg(baseline_abs_error), 1) AS baseline_mae,\n",
+        "       round(percentile(pct_error, 0.5), 1) AS median_pct_error\n",
+        "FROM workspace.ga2_gold.predictions_all\n",
+        "WHERE label_ok AND split = 'test'\n",
+        "GROUP BY ALL\n",
+        "HAVING count(*) >= 15\n"
+      ]
+    },
+    {
+      "name": "extremes",
+      "displayName": "extremes",
+      "queryLines": [
+        "SELECT city, CASE WHEN error > 0 THEN 'over-priced' ELSE 'under-priced' END AS direction,\n",
+        "       name, neighbourhood, room_type, accommodates, price, predicted_price, error, pct_error, listing_url,\n",
+        "       row_number() OVER (PARTITION BY city, error > 0 ORDER BY abs(error) DESC) AS rank\n",
+        "FROM workspace.ga2_gold.predictions_all\n",
+        "WHERE label_ok AND split = 'test' AND error <> 0\n",
+        "QUALIFY rank <= 10\n",
+        "ORDER BY city, direction, rank\n"
+      ]
+    },
+    {
+      "name": "vaud_steps",
+      "displayName": "vaud_steps",
+      "queryLines": [
+        "WITH c AS (\n",
+        "  SELECT CASE step WHEN 0 THEN '1 first run' WHEN 1 THEN '2 + city level' ELSE '3 + municipality level' END AS step,\n",
+        "         model_mae_c, baseline_mae_c\n",
+        "  FROM workspace.ga2_gold.city_c_changes\n",
+        ")\n",
+        "SELECT step, 'Model' AS method, model_mae_c AS mae FROM c\n",
+        "UNION ALL\n",
+        "SELECT step, 'Baseline', baseline_mae_c FROM c\n"
+      ]
+    },
+    {
+      "name": "vaud_areas",
+      "displayName": "vaud_areas",
+      "queryLines": [
+        "WITH top AS (\n",
+        "  SELECT neighbourhood FROM workspace.ga2_gold.predictions_after_change_vaud GROUP BY neighbourhood ORDER BY count(*) DESC LIMIT 8\n",
+        "), p AS (\n",
+        "  SELECT neighbourhood, price, price_first_run, price_city_level, price_area_level\n",
+        "  FROM workspace.ga2_gold.predictions_after_change_vaud WHERE neighbourhood IN (SELECT neighbourhood FROM top)\n",
+        ")\n",
+        "SELECT neighbourhood, '1 first run' AS step, round(percentile(100 * (price_first_run - price) / price, 0.5), 1) AS median_pct_error, count(*) AS test_listings FROM p GROUP BY neighbourhood\n",
+        "UNION ALL\n",
+        "SELECT neighbourhood, '2 + city level', round(percentile(100 * (price_city_level - price) / price, 0.5), 1), count(*) FROM p GROUP BY neighbourhood\n",
+        "UNION ALL\n",
+        "SELECT neighbourhood, '3 + municipality level', round(percentile(100 * (price_area_level - price) / price, 0.5), 1), count(*) FROM p GROUP BY neighbourhood\n"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "city_overview",
+      "displayName": "1. City overview",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layout": [
+        {
+          "widget": {
+            "name": "text_1",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Entire homes make up 70-76% of listings in every city, and about a third of all listings are inactive\n",
+                "\n",
+                "Geneva (A), Zurich (B) and Vaud (C), Inside Airbnb snapshots of Sep-Oct 2026. Prices in CHF per night; price figures use only listings with a usable price (inactive listings and 14 implausible prices excluded).\n"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "table_2",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "city_totals",
+                  "fields": [
+                    {
+                      "name": "city",
+                      "expression": "`city`"
+                    },
+                    {
+                      "name": "listings",
+                      "expression": "`listings`"
+                    },
+                    {
+                      "name": "pct_active",
+                      "expression": "`pct_active`"
+                    },
+                    {
+                      "name": "hosts",
+                      "expression": "`hosts`"
+                    },
+                    {
+                      "name": "listings_per_host",
+                      "expression": "`listings_per_host`"
+                    },
+                    {
+                      "name": "median_price",
+                      "expression": "`median_price`"
+                    },
+                    {
+                      "name": "p25_price",
+                      "expression": "`p25_price`"
+                    },
+                    {
+                      "name": "p75_price",
+                      "expression": "`p75_price`"
+                    },
+                    {
+                      "name": "median_availability_365",
+                      "expression": "`median_availability_365`"
+                    },
+                    {
+                      "name": "pct_closed_all_year",
+                      "expression": "`pct_closed_all_year`"
+                    },
+                    {
+                      "name": "avg_review_rating",
+                      "expression": "`avg_review_rating`"
+                    },
+                    {
+                      "name": "pct_superhost",
+                      "expression": "`pct_superhost`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "city",
+                    "displayName": "City",
+                    "title": "City",
+                    "visible": true,
+                    "order": 0,
+                    "type": "string",
+                    "displayAs": "string",
+                    "alignContent": "left"
+                  },
+                  {
+                    "fieldName": "listings",
+                    "displayName": "Listings",
+                    "title": "Listings",
+                    "visible": true,
+                    "order": 1,
+                    "type": "integer",
+                    "displayAs": "number",
+                    "alignContent": "right"
+                  },
+                  {
+                    "fieldName": "pct_active",
+                    "displayName": "Active %",
+                    "title": "Active %",
+                    "visible": true,
+                    "order": 2,
+                    "type": "float",
+                    "displayAs": "number",
+                    "alignContent": "right",
+                    "numberFormat": "0.0"
+                  },
+                  {
+                    "fieldName": "hosts",
+                    "displayName": "Hosts",
+                    "title": "Hosts",
+                    "visible": true,
+                    "order": 3,
+                    "type": "integer",
+                    "displayAs": "number",
+                    "alignContent": "right"
+                  },
+                  {
+                    "fieldName": "listings_per_host",
+                    "displayName": "Listings / host",
+                    "title": "Listings / host",
+                    "visible": true,
+                    "order": 4,
+                    "type": "float",
+                    "displayAs": "number",
+                    "alignContent": "right",
+                    "numberFormat": "0.0"
+                  },
+                  {
+                    "fieldName": "median_price",
+                    "displayName": "Median price",
+                    "title": "Median price",
+                    "visible": true,
+                    "order": 5,
+                    "type": "float",
+                    "displayAs": "number",
+                    "alignContent": "right",
+                    "numberFormat": "0.0"
+                  },
+                  {
+                    "fieldName": "p25_price",
+                    "displayName": "P25 price",
+                    "title": "P25 price",
+                    "visible": true,
+                    "order": 6,
+                    "type": "float",
+                    "displayAs": "number",
+                    "alignContent": "right",
+                    "numberFormat": "0.0"
+                  },
+                  {
+                    "fieldName": "p75_price",
+                    "displayName": "P75 price",
+                    "title": "P75 price",
+                    "visible": true,
+                    "order": 7,
+                    "type": "float",
+                    "displayAs": "number",
+                    "alignContent": "right",
+                    "numberFormat": "0.0"
+                  },
+                  {
+                    "fieldName": "median_availability_365",
+                    "displayName": "Median availability (days)",
+                    "title": "Median availability (days)",
+                    "visible": true,
+                    "order": 8,
+                    "type": "float",
+                    "displayAs": "number",
+                    "alignContent": "right",
+                    "numberFormat": "0.0"
+                  },
+                  {
+                    "fieldName": "pct_closed_all_year",
+                    "displayName": "Closed all year %",
+                    "title": "Closed all year %",
+                    "visible": true,
+                    "order": 9,
+                    "type": "float",
+                    "displayAs": "number",
+                    "alignContent": "right",
+                    "numberFormat": "0.0"
+                  },
+                  {
+                    "fieldName": "avg_review_rating",
+                    "displayName": "Avg review score",
+                    "title": "Avg review score",
+                    "visible": true,
+                    "order": 10,
+                    "type": "float",
+                    "displayAs": "number",
+                    "alignContent": "right",
+                    "numberFormat": "0.0"
+                  },
+                  {
+                    "fieldName": "pct_superhost",
+                    "displayName": "Superhost %",
+                    "title": "Superhost %",
+                    "visible": true,
+                    "order": 11,
+                    "type": "float",
+                    "displayAs": "number",
+                    "alignContent": "right",
+                    "numberFormat": "0.0"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Vaud has the most listings; Zurich is the most expensive and the least available",
+                "showDescription": true,
+                "description": "One row per city, from city_metrics_all where room_type = 'All' (never a sum of room types)."
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 6,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "bar_3",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "room_mix",
+                  "fields": [
+                    {
+                      "name": "city",
+                      "expression": "`city`"
+                    },
+                    {
+                      "name": "pct_of_listings",
+                      "expression": "`pct_of_listings`"
+                    },
+                    {
+                      "name": "room_type",
+                      "expression": "`room_type`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "city",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "City"
+                },
+                "y": {
+                  "fieldName": "pct_of_listings",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "% of listings"
+                },
+                "color": {
+                  "fieldName": "room_type",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Room type"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Entire homes dominate everywhere; private rooms are 24-30%"
+              },
+              "mark": {
+                "layout": "stack"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "bar_4",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "room_mix",
+                  "fields": [
+                    {
+                      "name": "city",
+                      "expression": "`city`"
+                    },
+                    {
+                      "name": "median_price",
+                      "expression": "`median_price`"
+                    },
+                    {
+                      "name": "room_type",
+                      "expression": "`room_type`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "city",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "City"
+                },
+                "y": {
+                  "fieldName": "median_price",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Median price (CHF)"
+                },
+                "color": {
+                  "fieldName": "room_type",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Room type"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "An entire home costs 1.7-2.2 times a private room"
+              },
+              "mark": {
+                "layout": "group"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 6,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "bar_5",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "price_bands",
+                  "fields": [
+                    {
+                      "name": "price_band",
+                      "expression": "`price_band`"
+                    },
+                    {
+                      "name": "pct_of_listings",
+                      "expression": "`pct_of_listings`"
+                    },
+                    {
+                      "name": "city",
+                      "expression": "`city`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "price_band",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Price per night (CHF)"
+                },
+                "y": {
+                  "fieldName": "pct_of_listings",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "% of priced listings"
+                },
+                "color": {
+                  "fieldName": "city",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Geneva",
+                        "color": "#3987e5"
+                      },
+                      {
+                        "value": "Zurich",
+                        "color": "#d95926"
+                      },
+                      {
+                        "value": "Vaud",
+                        "color": "#199e70"
+                      }
+                    ]
+                  },
+                  "displayName": "City"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Vaud has the longest expensive tail: 20% of its listings ask CHF 300 or more (Geneva 12%, Zurich 18%)",
+                "showDescription": true,
+                "description": "Share of each city's listings with a usable price, per price band."
+              },
+              "mark": {
+                "layout": "group"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "filter_6",
+            "queries": [
+              {
+                "name": "filter_neighbourhoods",
+                "query": {
+                  "datasetName": "neighbourhoods",
+                  "fields": [
+                    {
+                      "name": "city",
+                      "expression": "`city`"
+                    },
+                    {
+                      "name": "city_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-single-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "city",
+                    "displayName": "City",
+                    "queryName": "filter_neighbourhoods"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "City for the neighbourhood chart"
+              },
+              "selection": {
+                "defaultSelection": {
+                  "values": {
+                    "dataType": "STRING",
+                    "values": [
+                      {
+                        "value": "Geneva"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 18,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "text_7",
+            "multilineTextboxSpec": {
+              "lines": [
+                "Vaud's neighbourhoods are municipalities: Lausanne is cheaper than the resorts (Ollon, Gryon, Montreux).\n"
+              ]
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 18,
+            "width": 4,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "bar_8",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "neighbourhoods",
+                  "fields": [
+                    {
+                      "name": "median_price",
+                      "expression": "`median_price`"
+                    },
+                    {
+                      "name": "neighbourhood",
+                      "expression": "`neighbourhood`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "median_price",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Median price (CHF)"
+                },
+                "y": {
+                  "fieldName": "neighbourhood",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  },
+                  "displayName": "Neighbourhood"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Neighbourhood prices: the 15 largest neighbourhoods of the selected city"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 20,
+            "width": 6,
+            "height": 8
+          }
+        }
+      ]
+    },
+    {
+      "name": "geneva_vs_zurich",
+      "displayName": "2. Geneva vs Zurich",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layout": [
+        {
+          "widget": {
+            "name": "text_9",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Zurich is 20% pricier per night than Geneva, but only 8-11% for a same-size flat: Zurich listings are bigger\n",
+                "\n",
+                "City A = Geneva, city B = Zurich. Median prices in CHF per night, listings with a usable price.\n"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "table_10",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ab_compare",
+                  "fields": [
+                    {
+                      "name": "metric",
+                      "expression": "`metric`"
+                    },
+                    {
+                      "name": "geneva",
+                      "expression": "`geneva`"
+                    },
+                    {
+                      "name": "zurich",
+                      "expression": "`zurich`"
+                    },
+                    {
+                      "name": "zurich_vs_geneva_pct",
+                      "expression": "`zurich_vs_geneva_pct`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "metric",
+                    "displayName": "Metric",
+                    "title": "Metric",
+                    "visible": true,
+                    "order": 0,
+                    "type": "string",
+                    "displayAs": "string",
+                    "alignContent": "left"
+                  },
+                  {
+                    "fieldName": "geneva",
+                    "displayName": "Geneva (A)",
+                    "title": "Geneva (A)",
+                    "visible": true,
+                    "order": 1,
+                    "type": "float",
+                    "displayAs": "number",
+                    "alignContent": "right",
+                    "numberFormat": "0.0"
+                  },
+                  {
+                    "fieldName": "zurich",
+                    "displayName": "Zurich (B)",
+                    "title": "Zurich (B)",
+                    "visible": true,
+                    "order": 2,
+                    "type": "float",
+                    "displayAs": "number",
+                    "alignContent": "right",
+                    "numberFormat": "0.0"
+                  },
+                  {
+                    "fieldName": "zurich_vs_geneva_pct",
+                    "displayName": "Zurich vs Geneva %",
+                    "title": "Zurich vs Geneva %",
+                    "visible": true,
+                    "order": 3,
+                    "type": "float",
+                    "displayAs": "number",
+                    "alignContent": "right",
+                    "numberFormat": "0.0"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Zurich: higher prices, 28% fewer open days, more listings per host and superhosts",
+                "showDescription": true,
+                "description": "City totals (room_type = 'All'). Last column: how much higher (+) or lower (-) Zurich is."
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 3,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "bar_11",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ab_room_price",
+                  "fields": [
+                    {
+                      "name": "room_type",
+                      "expression": "`room_type`"
+                    },
+                    {
+                      "name": "median_price",
+                      "expression": "`median_price`"
+                    },
+                    {
+                      "name": "city",
+                      "expression": "`city`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "room_type",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Room type"
+                },
+                "y": {
+                  "fieldName": "median_price",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Median price (CHF)"
+                },
+                "color": {
+                  "fieldName": "city",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Geneva",
+                        "color": "#3987e5"
+                      },
+                      {
+                        "value": "Zurich",
+                        "color": "#d95926"
+                      },
+                      {
+                        "value": "Vaud",
+                        "color": "#199e70"
+                      }
+                    ]
+                  },
+                  "displayName": "City"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "The gap is in entire homes (+15%); private rooms differ by 6%"
+              },
+              "mark": {
+                "layout": "group"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 2,
+            "width": 3,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "bar_12",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ab_like_for_like",
+                  "fields": [
+                    {
+                      "name": "guests",
+                      "expression": "`guests`"
+                    },
+                    {
+                      "name": "median_price",
+                      "expression": "`median_price`"
+                    },
+                    {
+                      "name": "city",
+                      "expression": "`city`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "guests",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Guests (accommodates)"
+                },
+                "y": {
+                  "fieldName": "median_price",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Median price (CHF)"
+                },
+                "color": {
+                  "fieldName": "city",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Geneva",
+                        "color": "#3987e5"
+                      },
+                      {
+                        "value": "Zurich",
+                        "color": "#d95926"
+                      },
+                      {
+                        "value": "Vaud",
+                        "color": "#199e70"
+                      }
+                    ]
+                  },
+                  "displayName": "City"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Same number of guests, much smaller gap: entire homes for 2 guests +8%, for 4 guests +11%",
+                "showDescription": true,
+                "description": "Entire homes, 1-6 guests."
+              },
+              "mark": {
+                "layout": "group"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 9,
+            "width": 3,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "bar_13",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ab_size",
+                  "fields": [
+                    {
+                      "name": "guests",
+                      "expression": "`guests`"
+                    },
+                    {
+                      "name": "pct_of_listings",
+                      "expression": "`pct_of_listings`"
+                    },
+                    {
+                      "name": "city",
+                      "expression": "`city`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "guests",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Guests (accommodates)"
+                },
+                "y": {
+                  "fieldName": "pct_of_listings",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "% of listings"
+                },
+                "color": {
+                  "fieldName": "city",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Geneva",
+                        "color": "#3987e5"
+                      },
+                      {
+                        "value": "Zurich",
+                        "color": "#d95926"
+                      },
+                      {
+                        "value": "Vaud",
+                        "color": "#199e70"
+                      }
+                    ]
+                  },
+                  "displayName": "City"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Zurich has more listings for 4+ guests, which lifts its city-wide median"
+              },
+              "mark": {
+                "layout": "group"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 9,
+            "width": 3,
+            "height": 7
+          }
+        }
+      ]
+    },
+    {
+      "name": "model",
+      "displayName": "3. Price model",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layout": [
+        {
+          "widget": {
+            "name": "text_14",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## The model beats the baseline by 20% on Geneva and Zurich and by 19% on Vaud after the changes; its largest errors are in the Vaud Alps\n",
+                "\n",
+                "Every number is on the test set (20% of listings per city, never used for training or model choice). Baseline = median training price for the same room type and number of guests. error = predicted - actual: positive = the model over-prices. Vaud rows in the charts below are the **first run** (unchanged week 1 model); the changes are shown at the bottom.\n"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "bar_15",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "mae_by_city",
+                  "fields": [
+                    {
+                      "name": "city_label",
+                      "expression": "`city_label`"
+                    },
+                    {
+                      "name": "mae",
+                      "expression": "`mae`"
+                    },
+                    {
+                      "name": "method",
+                      "expression": "`method`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "city_label",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "City"
+                },
+                "y": {
+                  "fieldName": "mae",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "MAE on test set (CHF)"
+                },
+                "color": {
+                  "fieldName": "method",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Baseline",
+                        "color": "#8a8f98"
+                      },
+                      {
+                        "value": "Model",
+                        "color": "#d55181"
+                      }
+                    ]
+                  },
+                  "displayName": "Method"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Model vs baseline: lower is better",
+                "showDescription": true,
+                "description": "Vaud is harder for any method: its baseline error is 19% higher than on A + B."
+              },
+              "mark": {
+                "layout": "group"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "filter_16",
+            "queries": [
+              {
+                "name": "filter_test_predictions",
+                "query": {
+                  "datasetName": "test_predictions",
+                  "fields": [
+                    {
+                      "name": "city",
+                      "expression": "`city`"
+                    },
+                    {
+                      "name": "city_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "filter_mae_by_room_type",
+                "query": {
+                  "datasetName": "mae_by_room_type",
+                  "fields": [
+                    {
+                      "name": "city",
+                      "expression": "`city`"
+                    },
+                    {
+                      "name": "city_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "filter_extremes",
+                "query": {
+                  "datasetName": "extremes",
+                  "fields": [
+                    {
+                      "name": "city",
+                      "expression": "`city`"
+                    },
+                    {
+                      "name": "city_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "city",
+                    "displayName": "City",
+                    "queryName": "filter_test_predictions"
+                  },
+                  {
+                    "fieldName": "city",
+                    "displayName": "City",
+                    "queryName": "filter_mae_by_room_type"
+                  },
+                  {
+                    "fieldName": "city",
+                    "displayName": "City",
+                    "queryName": "filter_extremes"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "City"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 9,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "scatter_17",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "test_predictions",
+                  "fields": [
+                    {
+                      "name": "price",
+                      "expression": "`price`"
+                    },
+                    {
+                      "name": "predicted_price",
+                      "expression": "`predicted_price`"
+                    },
+                    {
+                      "name": "city",
+                      "expression": "`city`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "scatter",
+              "encodings": {
+                "x": {
+                  "fieldName": "price",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Actual price (CHF)"
+                },
+                "y": {
+                  "fieldName": "predicted_price",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Predicted price (CHF)"
+                },
+                "color": {
+                  "fieldName": "city",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Geneva",
+                        "color": "#3987e5"
+                      },
+                      {
+                        "value": "Zurich",
+                        "color": "#d95926"
+                      },
+                      {
+                        "value": "Vaud",
+                        "color": "#199e70"
+                      }
+                    ]
+                  },
+                  "displayName": "City"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Predicted vs actual price: points above the diagonal are over-priced",
+                "showDescription": true,
+                "description": "Test listings. The model is pulled towards the middle: cheap listings are over-priced, expensive ones under-priced."
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 11,
+            "width": 4,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "bar_18",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "mae_by_room_type",
+                  "fields": [
+                    {
+                      "name": "room_type",
+                      "expression": "`room_type`"
+                    },
+                    {
+                      "name": "model_mae",
+                      "expression": "`model_mae`"
+                    },
+                    {
+                      "name": "city",
+                      "expression": "`city`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "room_type",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Room type"
+                },
+                "y": {
+                  "fieldName": "model_mae",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Model MAE (CHF)"
+                },
+                "color": {
+                  "fieldName": "city",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Geneva",
+                        "color": "#3987e5"
+                      },
+                      {
+                        "value": "Zurich",
+                        "color": "#d95926"
+                      },
+                      {
+                        "value": "Vaud",
+                        "color": "#199e70"
+                      }
+                    ]
+                  },
+                  "displayName": "City"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Entire homes carry the largest errors in CHF",
+                "showDescription": true,
+                "description": "Room types with at least 20 test listings."
+              },
+              "mark": {
+                "layout": "group"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 11,
+            "width": 2,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "bar_19",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "mae_by_neighbourhood",
+                  "fields": [
+                    {
+                      "name": "model_mae",
+                      "expression": "`model_mae`"
+                    },
+                    {
+                      "name": "area",
+                      "expression": "`area`"
+                    },
+                    {
+                      "name": "city",
+                      "expression": "`city`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "model_mae",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Model MAE (CHF)"
+                },
+                "y": {
+                  "fieldName": "area",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  },
+                  "displayName": "Neighbourhood"
+                },
+                "color": {
+                  "fieldName": "city",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Geneva",
+                        "color": "#3987e5"
+                      },
+                      {
+                        "value": "Zurich",
+                        "color": "#d95926"
+                      },
+                      {
+                        "value": "Vaud",
+                        "color": "#199e70"
+                      }
+                    ]
+                  },
+                  "displayName": "City"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Alpine municipalities (Ormont-Dessous, Gryon, Château-d'Oex) have the largest errors; Lausanne and Zurich's residential districts the smallest",
+                "showDescription": true,
+                "description": "Neighbourhoods with at least 15 test listings."
+              },
+              "mark": {
+                "layout": "stack"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 19,
+            "width": 6,
+            "height": 9
+          }
+        },
+        {
+          "widget": {
+            "name": "table_20",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "extremes",
+                  "fields": [
+                    {
+                      "name": "city",
+                      "expression": "`city`"
+                    },
+                    {
+                      "name": "direction",
+                      "expression": "`direction`"
+                    },
+                    {
+                      "name": "name",
+                      "expression": "`name`"
+                    },
+                    {
+                      "name": "neighbourhood",
+                      "expression": "`neighbourhood`"
+                    },
+                    {
+                      "name": "room_type",
+                      "expression": "`room_type`"
+                    },
+                    {
+                      "name": "accommodates",
+                      "expression": "`accommodates`"
+                    },
+                    {
+                      "name": "price",
+                      "expression": "`price`"
+                    },
+                    {
+                      "name": "predicted_price",
+                      "expression": "`predicted_price`"
+                    },
+                    {
+                      "name": "error",
+                      "expression": "`error`"
+                    },
+                    {
+                      "name": "pct_error",
+                      "expression": "`pct_error`"
+                    },
+                    {
+                      "name": "listing_url",
+                      "expression": "`listing_url`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "city",
+                    "displayName": "City",
+                    "title": "City",
+                    "visible": true,
+                    "order": 0,
+                    "type": "string",
+                    "displayAs": "string",
+                    "alignContent": "left"
+                  },
+                  {
+                    "fieldName": "direction",
+                    "displayName": "Direction",
+                    "title": "Direction",
+                    "visible": true,
+                    "order": 1,
+                    "type": "string",
+                    "displayAs": "string",
+                    "alignContent": "left"
+                  },
+                  {
+                    "fieldName": "name",
+                    "displayName": "Listing",
+                    "title": "Listing",
+                    "visible": true,
+                    "order": 2,
+                    "type": "string",
+                    "displayAs": "string",
+                    "alignContent": "left"
+                  },
+                  {
+                    "fieldName": "neighbourhood",
+                    "displayName": "Neighbourhood",
+                    "title": "Neighbourhood",
+                    "visible": true,
+                    "order": 3,
+                    "type": "string",
+                    "displayAs": "string",
+                    "alignContent": "left"
+                  },
+                  {
+                    "fieldName": "room_type",
+                    "displayName": "Room type",
+                    "title": "Room type",
+                    "visible": true,
+                    "order": 4,
+                    "type": "string",
+                    "displayAs": "string",
+                    "alignContent": "left"
+                  },
+                  {
+                    "fieldName": "accommodates",
+                    "displayName": "Guests",
+                    "title": "Guests",
+                    "visible": true,
+                    "order": 5,
+                    "type": "integer",
+                    "displayAs": "number",
+                    "alignContent": "right"
+                  },
+                  {
+                    "fieldName": "price",
+                    "displayName": "Actual",
+                    "title": "Actual",
+                    "visible": true,
+                    "order": 6,
+                    "type": "float",
+                    "displayAs": "number",
+                    "alignContent": "right",
+                    "numberFormat": "0.0"
+                  },
+                  {
+                    "fieldName": "predicted_price",
+                    "displayName": "Predicted",
+                    "title": "Predicted",
+                    "visible": true,
+                    "order": 7,
+                    "type": "float",
+                    "displayAs": "number",
+                    "alignContent": "right",
+                    "numberFormat": "0.0"
+                  },
+                  {
+                    "fieldName": "error",
+                    "displayName": "Error (CHF)",
+                    "title": "Error (CHF)",
+                    "visible": true,
+                    "order": 8,
+                    "type": "float",
+                    "displayAs": "number",
+                    "alignContent": "right",
+                    "numberFormat": "0.0"
+                  },
+                  {
+                    "fieldName": "pct_error",
+                    "displayName": "Error %",
+                    "title": "Error %",
+                    "visible": true,
+                    "order": 9,
+                    "type": "float",
+                    "displayAs": "number",
+                    "alignContent": "right",
+                    "numberFormat": "0.0"
+                  },
+                  {
+                    "fieldName": "listing_url",
+                    "displayName": "Link",
+                    "title": "Link",
+                    "visible": true,
+                    "order": 10,
+                    "type": "string",
+                    "displayAs": "link",
+                    "alignContent": "left",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "open",
+                    "linkOpenInNewTab": true
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "The 10 most over- and under-priced test listings per city",
+                "showDescription": true,
+                "description": "Under-priced (error < 0): the model suggests less than the host asks. Over-priced: more."
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 28,
+            "width": 6,
+            "height": 9
+          }
+        },
+        {
+          "widget": {
+            "name": "text_21",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Vaud (city C): the municipality price level removed the bias the first run had\n",
+                "\n",
+                "Change 1: one city-free model plus a price level for the city, learnt from Vaud's known (train) prices. Change 2: plus a price level per municipality, shrunk to 0 where few prices are known.\n"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 37,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "bar_22",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "vaud_steps",
+                  "fields": [
+                    {
+                      "name": "step",
+                      "expression": "`step`"
+                    },
+                    {
+                      "name": "mae",
+                      "expression": "`mae`"
+                    },
+                    {
+                      "name": "method",
+                      "expression": "`method`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "step",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Step"
+                },
+                "y": {
+                  "fieldName": "mae",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "MAE on Vaud test set (CHF)"
+                },
+                "color": {
+                  "fieldName": "method",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Baseline",
+                        "color": "#8a8f98"
+                      },
+                      {
+                        "value": "Model",
+                        "color": "#d55181"
+                      }
+                    ]
+                  },
+                  "displayName": "Method"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Vaud MAE: 71.9 first run, 70.6 with a city level, 68.1 with municipality levels (baseline 84.0)"
+              },
+              "mark": {
+                "layout": "group"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 39,
+            "width": 3,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "bar_23",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "vaud_areas",
+                  "fields": [
+                    {
+                      "name": "neighbourhood",
+                      "expression": "`neighbourhood`"
+                    },
+                    {
+                      "name": "median_pct_error",
+                      "expression": "`median_pct_error`"
+                    },
+                    {
+                      "name": "step",
+                      "expression": "`step`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "neighbourhood",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Municipality"
+                },
+                "y": {
+                  "fieldName": "median_pct_error",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Median error (%)"
+                },
+                "color": {
+                  "fieldName": "step",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "1 first run",
+                        "color": "#8a8f98"
+                      },
+                      {
+                        "value": "2 + city level",
+                        "color": "#c98500"
+                      },
+                      {
+                        "value": "3 + municipality level",
+                        "color": "#199e70"
+                      }
+                    ]
+                  },
+                  "displayName": "Step"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Lausanne went from 21% over-priced to -4%; Montreux from -12% to 0%",
+                "showDescription": true,
+                "description": "The 8 Vaud municipalities with the most test listings."
+              },
+              "mark": {
+                "layout": "group"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 39,
+            "width": 3,
+            "height": 7
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+# Deliverable 3.5: the AI/BI dashboard, kept as its exported JSON in dashboard/.
+resources:
+  dashboards:
+    ga2_dashboard:
+      display_name: "GA2 Airbnb Switzerland"
+      file_path: ../dashboard/ga2_dashboard.lvdash.json
+      warehouse_id: ${var.warehouse_id}
