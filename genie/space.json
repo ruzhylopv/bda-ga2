@@ -1,0 +1,201 @@
+{
+  "version": 1,
+  "config": {
+    "sample_questions": [
+      {
+        "id": "0a29fed8c9e40d916ae5956557752ee4",
+        "question": [
+          "How much better than the baseline is the model in each city?"
+        ]
+      },
+      {
+        "id": "14b976eee594a9be8f0fb7646ff43137",
+        "question": [
+          "Which neighbourhoods in City B have the most listings?"
+        ]
+      },
+      {
+        "id": "5134c729e678128df49e941b0b241b87",
+        "question": [
+          "Compare listings, hosts and median price across the three cities"
+        ]
+      },
+      {
+        "id": "694b1cb0a3ab2cc9f905eccf9a9bd63e",
+        "question": [
+          "What is the median price of entire homes in City A?"
+        ]
+      },
+      {
+        "id": "8b040795cf7c0cc97c11562253a21d44",
+        "question": [
+          "Where does the model under-price listings the most?"
+        ]
+      }
+    ]
+  },
+  "data_sources": {
+    "tables": [
+      {
+        "identifier": "workspace.ga2_gold.city_c_changes",
+        "description": [
+          "City C (Vaud): model MAE after each change step."
+        ]
+      },
+      {
+        "identifier": "workspace.ga2_gold.city_c_report",
+        "description": [
+          "City C (Vaud): baseline and model MAE, first run and after the model changes."
+        ]
+      },
+      {
+        "identifier": "workspace.ga2_gold.city_metrics_all",
+        "description": [
+          "One row per city and room_type. room_type = 'All' is the city total."
+        ]
+      },
+      {
+        "identifier": "workspace.ga2_gold.listings_all",
+        "description": [
+          "One row per listing, all cities. Price in CHF per night."
+        ]
+      },
+      {
+        "identifier": "workspace.ga2_gold.model_evaluation",
+        "description": [
+          "Test-set MAE of the model and the baseline for Geneva, Zurich and both together ('A + B')."
+        ]
+      },
+      {
+        "identifier": "workspace.ga2_gold.neighbourhood_metrics_all",
+        "description": [
+          "One row per city and neighbourhood (in Vaud: municipality)."
+        ]
+      },
+      {
+        "identifier": "workspace.ga2_gold.predictions_all",
+        "description": [
+          "Model and baseline price per listing. error = predicted_price - price."
+        ]
+      }
+    ]
+  },
+  "instructions": {
+    "text_instructions": [
+      {
+        "id": "cbde2df6a7c89370edc449dc5705d30c",
+        "content": [
+          "Data: Inside Airbnb listings for three Swiss areas. City A = Geneva, city B = Zurich, city C = Vaud.\n",
+          "Vaud is a canton, not a city: its neighbourhoods are municipalities (Lausanne, Montreux, Alpine resorts).\n",
+          "All prices are in CHF per night, as advertised on the snapshot date. Always name the city and its letter in answers.\n",
+          "\n",
+          "City-level numbers (listings, hosts, median price, availability, review scores, room-type mix):\n",
+          "- use city_metrics_all. room_type = 'All' is the city total. Never sum or average the room-type rows: medians and\n",
+          "  distinct host counts do not add up.\n",
+          "- For questions about room types (most common, cheapest, mix), use the room-type rows: room_type <> 'All'.\n",
+          "  pct_of_listings is the share of the city's listings.\n",
+          "- Room type values are exactly 'Entire home/apt', 'Private room', 'Hotel room', 'Shared room'.\n",
+          "  \"Entire homes\", \"whole apartments\" or \"flats\" mean 'Entire home/apt'.\n",
+          "\n",
+          "Price statistics computed from listings_all:\n",
+          "- only listings with has_price = true AND outlier_class <> 'implausible'.\n",
+          "- \"median\" means percentile(price, 0.5). Report medians, not averages, unless the user asks for the average.\n",
+          "- Counts of listings include inactive listings (has_price = false) unless the user asks for active listings.\n",
+          "\n",
+          "Neighbourhoods: use the column neighbourhood. For \"most listings\" use neighbourhood_metrics_all.listings.\n",
+          "When ranking neighbourhoods by price, only include those with priced_listings >= 10: a median of 1-5 listings is\n",
+          "noise. Say that small neighbourhoods were left out.\n",
+          "\n",
+          "Model accuracy (predictions_all):\n",
+          "- only rows with label_ok = true AND split = 'test' (listings the model never saw). MAE = avg(abs_error).\n",
+          "- error = predicted_price - price. Under-priced: error < 0 (the model suggests less than the host asks).\n",
+          "  Over-priced: error > 0.\n",
+          "- \"Where does the model under-price most\" means: by neighbourhood, the most negative avg(error), only neighbourhoods\n",
+          "  with at least 15 test listings. Show the city, the number of test listings and avg(error) in CHF.\n",
+          "- The Vaud rows in predictions_all come from the first run (the unchanged week 1 model).\n",
+          "\n",
+          "Model against baseline:\n",
+          "- Geneva, Zurich and A + B: model_evaluation (city = 'A + B' is the combined row; do not average the cities).\n",
+          "- Vaud: city_c_report rows = 'test'; run = 'first_run' or 'after_change'. For any question about the model's error\n",
+          "  or accuracy on Vaud / city C, return both runs and the baseline: baseline 84.0, first run (unchanged model) and\n",
+          "  after the changes (current result).\n",
+          "- Improvement in % = 100 * (baseline_mae - model_mae) / baseline_mae.\n",
+          "- The baseline is the median training price for the same room type and number of guests.\n",
+          "\n",
+          "Round CHF to 1 decimal and percentages to 1 decimal."
+        ]
+      }
+    ],
+    "example_question_sqls": [
+      {
+        "id": "2cf6e78297913d1aa2c7d922824ef3b2",
+        "question": [
+          "Which neighbourhoods in City B have the most listings?"
+        ],
+        "sql": [
+          "SELECT neighbourhood, listings, active_listings, median_price AS median_price_chf\n",
+          "FROM workspace.ga2_gold.neighbourhood_metrics_all\n",
+          "WHERE city = 'Zurich'\n",
+          "ORDER BY listings DESC\n",
+          "LIMIT 10"
+        ]
+      },
+      {
+        "id": "7558b79553bc813bb35fccef2da02bf1",
+        "question": [
+          "Where does the model under-price listings the most?"
+        ],
+        "sql": [
+          "SELECT city, neighbourhood, count(*) AS test_listings, round(avg(error), 1) AS avg_error_chf,\n",
+          "       round(percentile(pct_error, 0.5), 1) AS median_pct_error\n",
+          "FROM workspace.ga2_gold.predictions_all\n",
+          "WHERE label_ok AND split = 'test'\n",
+          "GROUP BY city, neighbourhood\n",
+          "HAVING count(*) >= 15\n",
+          "ORDER BY avg_error_chf ASC\n",
+          "LIMIT 10"
+        ]
+      },
+      {
+        "id": "8b2310b7702da4dfd4c3c103635954d6",
+        "question": [
+          "How much better than the baseline is the model in each city?"
+        ],
+        "sql": [
+          "SELECT city, baseline_mae, model_mae, round(100 * (baseline_mae - model_mae) / baseline_mae, 1) AS improvement_pct,\n",
+          "       'test set' AS evaluated_on\n",
+          "FROM workspace.ga2_gold.model_evaluation\n",
+          "UNION ALL\n",
+          "SELECT concat('Vaud (', CASE run WHEN 'first_run' THEN 'first run' ELSE 'after changes' END, ')'),\n",
+          "       baseline_mae_c, model_mae_c, round(100 * (baseline_mae_c - model_mae_c) / baseline_mae_c, 1), 'test set'\n",
+          "FROM workspace.ga2_gold.city_c_report\n",
+          "WHERE rows = 'test'"
+        ]
+      },
+      {
+        "id": "d2b3810d480617d2612045a58b36723b",
+        "question": [
+          "What is the median price of entire homes in City A?"
+        ],
+        "sql": [
+          "SELECT city, room_type, median_price AS median_price_chf, active_listings\n",
+          "FROM workspace.ga2_gold.city_metrics_all\n",
+          "WHERE city = 'Geneva' AND room_type = 'Entire home/apt'"
+        ]
+      },
+      {
+        "id": "fb2441cf9d7c23f1ed25aeaf536f24f9",
+        "question": [
+          "Compare the median price per guest in each city"
+        ],
+        "sql": [
+          "SELECT city, round(percentile(price / accommodates, 0.5), 1) AS median_price_per_guest_chf,\n",
+          "       round(avg(accommodates), 2) AS avg_guests, count(*) AS priced_listings\n",
+          "FROM workspace.ga2_gold.listings_all\n",
+          "WHERE has_price AND outlier_class <> 'implausible'\n",
+          "GROUP BY city"
+        ]
+      }
+    ]
+  }
+}
